@@ -1,0 +1,837 @@
+{%- comment -%}
+  RASPADINHA - Seção Shopify
+  Uso: {% section 'scratch-card' %}
+  - Faça upload da imagem em Settings > Files
+  - Selecione a imagem no seletor abaixo
+  - Ajuste as coordenadas da área raspável se necessário
+{%- endcomment -%}
+
+{%- assign img = section.settings.image -%}
+{%- assign bg_img = section.settings.bg_image -%}
+{%- assign delay = section.settings.delay | times: 1000 -%}
+{%- assign cooldown = section.settings.cooldown | times: 86400000 -%}
+{%- assign img_url = img | img_url: '800x' -%}
+{%- if bg_img != blank %}{%- assign bg_img_url = bg_img | img_url: '1920x' -%}{% endif -%}
+{%- assign form_id = 'scratch-newsletter-form-' | append: section.id -%}
+{%- assign bg_r = section.settings.bg_color | color_extract: 'red' -%}
+{%- assign bg_g = section.settings.bg_color | color_extract: 'green' -%}
+{%- assign bg_b = section.settings.bg_color | color_extract: 'blue' -%}
+{%- assign bg_a = section.settings.bg_color_opacity | times: 1.0 | divided_by: 100 -%}
+
+<style>
+  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+  #scratch-popup-{{ section.id }}{position:fixed;inset:0;z-index:99999;opacity:0;pointer-events:none;transition:opacity 0.4s ease}
+  #scratch-popup-{{ section.id }}.active{opacity:1;pointer-events:auto}
+  .scratch-overlay-{{ section.id }}{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:99999;animation:fadeIn-{{ section.id }} 0.5s ease}
+  .scratch-inner-{{ section.id }}{width:100%;max-width:800px;padding:16px}
+  .card-wrap-{{ section.id }}{position:relative;width:100%;border-radius:16px;overflow:hidden}
+  .card-bg-{{ section.id }}{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none;pointer-events:none}
+  .card-text-{{ section.id }}{padding:0;text-align:center}
+  .card-title-{{ section.id }}{font-size:28px;font-weight:700;color:#fff;margin-bottom:2px;font-family:inherit}
+  .card-desc-{{ section.id }}{font-size:15px;color:rgba(255,255,255,0.7);line-height:1.3;font-family:inherit;margin-bottom:0}
+  @media(max-width:600px){
+  .card-title-{{ section.id }}{font-size:20px}
+  .card-desc-{{ section.id }}{font-size:13px}
+  }
+  .scratch-close-{{ section.id }}{position:absolute;top:12px;right:12px;background:rgba(0,0,0,0.3);border:none;color:rgba(255,255,255,0.5);font-size:26px;font-weight:100;cursor:pointer;z-index:20;line-height:1;padding:2px 10px 4px;border-radius:6px;transition:color 0.2s,background 0.2s;font-family:inherit}
+  .scratch-close-{{ section.id }}:hover{color:#fff;background:rgba(0,0,0,0.5)}
+  .scratch-area-{{ section.id }}{position:absolute;border-radius:14px;overflow:hidden;cursor:crosshair;z-index:10}
+  .scratch-area-{{ section.id }}::before{content:'';position:absolute;inset:0;border-radius:14px;z-index:5;pointer-events:none}
+  #scratchCanvas-{{ section.id }}{position:absolute;top:0;left:0;width:100%;height:100%;z-index:3;touch-action:none;cursor:crosshair;border-radius:14px}
+  @keyframes fadeIn-{{ section.id }}{from{opacity:0}to{opacity:1}}
+  @keyframes fadeInUp-{{ section.id }}{from{opacity:0;transform:translateY(30px) scale(0.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+  @keyframes scaleIn-{{ section.id }}{from{transform:scale(0.8);opacity:0}to{transform:scale(1);opacity:1}}
+  @keyframes checkPop-{{ section.id }}{0%{transform:scale(0)}50%{transform:scale(1.3)}100%{transform:scale(1)}}
+  .modal-overlay-{{ section.id }}{position:fixed;inset:0;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;z-index:100001;opacity:0;visibility:hidden;transition:opacity 0.4s ease,visibility 0.4s ease;padding:20px}
+  .modal-overlay-{{ section.id }}.active{opacity:1;visibility:visible}
+  .modal-{{ section.id }}{background:#000;border-radius:16px;padding:36px 32px 28px;max-width:400px;width:100%;position:relative;animation:fadeInUp-{{ section.id }} 0.4s ease forwards;font-family:inherit}
+  .modal-close-{{ section.id }}{position:absolute;top:10px;right:14px;background:none;border:none;color:rgba(255,255,255,0.25);font-size:22px;font-weight:100;cursor:pointer;transition:color 0.2s;line-height:1;padding:4px;font-family:inherit}
+  .modal-close-{{ section.id }}:hover{color:rgba(255,255,255,0.6)}
+  .modal-title-{{ section.id }}{text-align:center;font-size:24px;font-weight:700;color:#fff;margin-bottom:6px;font-family:inherit}
+  .modal-text-{{ section.id }}{text-align:center;font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:4px;line-height:1.4;font-family:inherit}
+  .modal-sub-{{ section.id }}{text-align:center;font-size:13px;color:rgba(255,255,255,0.4);margin-bottom:18px;font-family:inherit}
+  .input-group-{{ section.id }}{position:relative;margin-bottom:12px}
+  .input-group-{{ section.id }} input{width:100%;padding:12px 14px;background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;font-size:14px;outline:none;transition:border-color 0.2s;font-family:inherit}
+  .input-group-{{ section.id }} input::placeholder{color:rgba(255,255,255,0.2)}
+  .input-group-{{ section.id }} input:focus{border-color:rgba(255,255,255,0.3)}
+  .input-group-{{ section.id }} input.error{border-color:rgba(255,70,70,0.5)}
+  .input-error-{{ section.id }}{display:none;font-size:12px;color:#ff4646;margin-top:6px;padding-left:4px;font-family:inherit}
+  .input-error-{{ section.id }}.visible{display:block}
+  .btn-primary-{{ section.id }}{width:100%;padding:12px;background:#fff;border:none;border-radius:8px;color:#000;font-size:14px;font-weight:600;cursor:pointer;transition:opacity 0.2s;font-family:inherit}
+  .btn-primary-{{ section.id }}:hover{opacity:0.85}
+  .btn-primary-{{ section.id }}:disabled{opacity:0.4;cursor:not-allowed}
+  .success-overlay-{{ section.id }}{position:fixed;inset:0;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;z-index:100002;opacity:0;visibility:hidden;transition:opacity 0.4s ease,visibility 0.4s ease;padding:20px}
+  .success-overlay-{{ section.id }}.active{opacity:1;visibility:visible}
+  .success-modal-{{ section.id }}{background:#000;border-radius:16px;padding:36px 32px 28px;max-width:400px;width:100%;text-align:center;animation:scaleIn-{{ section.id }} 0.4s ease forwards;font-family:inherit}
+  .success-check-{{ section.id }}{width:56px;height:56px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;color:#000;font-weight:700;animation:checkPop-{{ section.id }} 0.5s ease forwards}
+  .success-title-{{ section.id }}{font-size:22px;font-weight:700;color:#fff;margin-bottom:8px;font-family:inherit}
+  .success-text-{{ section.id }}{font-size:14px;color:rgba(255,255,255,0.6);line-height:1.5;margin-bottom:4px;font-family:inherit}
+  .success-email-{{ section.id }}{font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:20px;word-break:break-all;font-family:inherit}
+  .success-modal-{{ section.id }} .btn-primary-{{ section.id }}{max-width:180px;margin:0 auto}
+  @media(max-width:600px){
+  .scratch-inner-{{ section.id }}{padding:8px}
+  .card-wrap-{{ section.id }}{border-radius:10px}
+  .scratch-area-{{ section.id }},.scratch-area-{{ section.id }}::before,#scratchCanvas-{{ section.id }}{border-radius:8px}
+  .modal-{{ section.id }}{padding:32px 24px 28px}
+  .success-modal-{{ section.id }}{padding:36px 24px 28px}
+  .success-check-{{ section.id }}{width:60px;height:60px;font-size:28px}
+  }
+  @media(max-width:400px){
+  .modal-{{ section.id }}{padding:24px 16px 20px}
+  .modal-title-{{ section.id }}{font-size:20px}
+  }
+</style>
+
+<style>
+  {% if section.settings.bg_image %}
+  .scratch-overlay-{{ section.id }}::before{content:'';position:absolute;inset:0;background-image:url({{ bg_img_url }});background-size:cover;background-position:center;filter:blur({{ section.settings.bg_blur }}px);z-index:-1}
+  {% endif %}
+  .scratch-overlay-{{ section.id }} .scratch-inner-{{ section.id }}{position:relative;z-index:1}
+  .card-title-{{ section.id }},.card-desc-{{ section.id }}{color:{{ section.settings.text_color }}}
+  .modal-{{ section.id }}{background:{{ section.settings.modal_bg_color }}}
+  .modal-{{ section.id }} .btn-primary-{{ section.id }}{background:{{ section.settings.btn_bg_color }};color:{{ section.settings.btn_text_color }}}
+  .modal-{{ section.id }} .input-group-{{ section.id }} input{background:{{ section.settings.input_bg_color }}}
+  .success-modal-{{ section.id }}{background:{{ section.settings.modal_bg_color }}}
+</style>
+
+<div id="scratch-popup-{{ section.id }}">
+  <div class="scratch-overlay-{{ section.id }}" id="scratchOverlay-{{ section.id }}" style="background:rgba({{ bg_r }},{{ bg_g }},{{ bg_b }},{{ bg_a }})">
+    <button class="scratch-close-{{ section.id }}" id="scratchClose-{{ section.id }}" aria-label="Fechar">&times;</button>
+    <div class="scratch-inner-{{ section.id }}">
+      {% if section.settings.card_title != blank or section.settings.card_description != blank %}
+      <div class="card-text-{{ section.id }}">
+        {% if section.settings.card_title != blank %}
+          <h2 class="card-title-{{ section.id }}">{{ section.settings.card_title }}</h2>
+        {% endif %}
+        {% if section.settings.card_description != blank %}
+          <p class="card-desc-{{ section.id }}">{{ section.settings.card_description }}</p>
+        {% endif %}
+      </div>
+      {% endif %}
+      <div class="card-wrap-{{ section.id }}">
+        <img src="{{ img_url }}" alt="" class="card-bg-{{ section.id }}" id="cardBg-{{ section.id }}">
+        <div class="scratch-area-{{ section.id }}" id="scratchArea-{{ section.id }}">
+          <canvas id="scratchCanvas-{{ section.id }}"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay-{{ section.id }}" id="modalOverlay-{{ section.id }}">
+  <div class="modal-{{ section.id }}">
+    <button class="modal-close-{{ section.id }}" id="modalClose-{{ section.id }}">&times;</button>
+    <h2 class="modal-title-{{ section.id }}" id="scratchTitle-{{ section.id }}">{{ section.settings.modal_title }}</h2>
+    <p class="modal-text-{{ section.id }}" id="scratchSubtitle-{{ section.id }}">
+      {{ section.settings.modal_subtitle }}
+    </p>
+    <p class="modal-sub-{{ section.id }}" id="scratchInstruction-{{ section.id }}">
+      {{ section.settings.modal_instruction }}
+    </p>
+    {% form 'customer', id: form_id %}
+      <div class="input-group-{{ section.id }}" id="group-name-{{ section.id }}">
+        <input
+          type="text"
+          name="contact[name]"
+          id="nameInput-{{ section.id }}"
+          placeholder="{{ section.settings.name_placeholder }}"
+          autocomplete="name"
+          required
+        >
+        <span class="input-error-{{ section.id }}" id="nameError-{{ section.id }}">
+          {{- section.settings.name_error -}}
+        </span>
+      </div>
+      <div class="input-group-{{ section.id }}" id="group-phone-{{ section.id }}">
+        <input
+          type="tel"
+          name="contact[phone]"
+          id="phoneInput-{{ section.id }}"
+          placeholder="{{ section.settings.phone_placeholder }}"
+          autocomplete="tel"
+          required
+        >
+        <span class="input-error-{{ section.id }}" id="phoneError-{{ section.id }}">
+          {{- section.settings.phone_error -}}
+        </span>
+      </div>
+      <div class="input-group-{{ section.id }}" id="group-email-{{ section.id }}">
+        <input
+          type="email"
+          name="contact[email]"
+          id="emailInput-{{ section.id }}"
+          placeholder="{{ section.settings.email_placeholder }}"
+          autocomplete="email"
+          required
+        >
+        <span class="input-error-{{ section.id }}" id="emailError-{{ section.id }}">
+          {{- section.settings.email_error -}}
+        </span>
+      </div>
+      <input type="hidden" name="contact[tags]" value="{{ section.settings.tags }}">
+      <input type="hidden" name="customer[accepts_marketing]" value="true">
+      <button type="submit" class="btn-primary-{{ section.id }}" id="submitBtn-{{ section.id }}">
+        {{ section.settings.submit_text }}
+      </button>
+    {% endform %}
+  </div>
+</div>
+
+<div class="success-overlay-{{ section.id }}" id="successOverlay-{{ section.id }}">
+  <div class="success-modal-{{ section.id }}">
+    <div class="success-check-{{ section.id }}">&#10003;</div>
+    <h2 class="success-title-{{ section.id }}" id="successTitle-{{ section.id }}">
+      {{ section.settings.success_title }}
+    </h2>
+    <p class="success-text-{{ section.id }}" id="successName-{{ section.id }}"></p>
+    <p class="success-email-{{ section.id }}" id="successEmail-{{ section.id }}"></p>
+    <button class="btn-primary-{{ section.id }}" id="successClose-{{ section.id }}">
+      {{ section.settings.close_text }}
+    </button>
+  </div>
+</div>
+
+<script>
+  (function(){
+    var sid = {{ section.id | json }};
+    var lg = function(msg, data){ console.log('[SCRATCH-' + sid + '] ' + msg, data !== undefined ? data : '') };
+
+    lg('=== INICIALIZANDO ===');
+    lg('section.id', sid);
+
+    var imgSrc = {{ img_url | json }};
+
+    var SCRATCH_X = {{ section.settings.scratch_x | plus: 0 | json }};
+    var SCRATCH_Y = {{ section.settings.scratch_y | plus: 0 | json }};
+    var SCRATCH_W = {{ section.settings.scratch_w | plus: 0 | json }};
+    var SCRATCH_H = {{ section.settings.scratch_h | plus: 0 | json }};
+    var REVEAL_THRESHOLD = {{ section.settings.threshold | json }};
+    var SHOW_DELAY = {{ delay | json }};
+    var COOLDOWN = {{ cooldown | json }};
+    var BLUR = {{ section.settings.blur | json }};
+    var BRUSH = {{ section.settings.brush | json }};
+    var STORAGE_KEY = 'scratch_submitted_' + sid;
+    var NAME_ENABLED = {{ section.settings.name_enabled | json }};
+    var PHONE_ENABLED = {{ section.settings.phone_enabled | json }};
+    var CHECK_INTERVAL = 300;
+
+    lg('imgSrc', imgSrc);
+    lg('SCRATCH_X', SCRATCH_X);
+    lg('SCRATCH_Y', SCRATCH_Y);
+    lg('SCRATCH_W', SCRATCH_W);
+    lg('SCRATCH_H', SCRATCH_H);
+    lg('REVEAL_THRESHOLD', REVEAL_THRESHOLD);
+    lg('SHOW_DELAY', SHOW_DELAY);
+    lg('COOLDOWN', COOLDOWN);
+    lg('BLUR', BLUR);
+    lg('BRUSH', BRUSH);
+    lg('NAME_ENABLED', NAME_ENABLED);
+    lg('PHONE_ENABLED', PHONE_ENABLED);
+
+    var T = {
+      title: {{ section.settings.modal_title | json }},
+      subtitle: {{ section.settings.modal_subtitle | json }},
+      instruction: {{ section.settings.modal_instruction | json }},
+      submit: {{ section.settings.submit_text | json }},
+      sending: {{ section.settings.sending_text | json }},
+      successTitle: {{ section.settings.success_title | json }},
+      close: {{ section.settings.close_text | json }}
+    };
+    var F = {
+      name: { enabled: NAME_ENABLED, placeholder: {{ section.settings.name_placeholder | json }}, error: {{ section.settings.name_error | json }} },
+      phone: { enabled: PHONE_ENABLED, placeholder: {{ section.settings.phone_placeholder | json }}, error: {{ section.settings.phone_error | json }} },
+      email: { enabled: true, placeholder: {{ section.settings.email_placeholder | json }}, error: {{ section.settings.email_error | json }} }
+    };
+
+    var TAGS = {{ section.settings.tags | json }};
+    var API_ENABLED = {{ section.settings.api_enabled | json }};
+    var API_URL = {{ section.settings.api_url | json }};
+
+    lg('API_ENABLED', API_ENABLED);
+    if (API_ENABLED) lg('API_URL', API_URL);
+
+    var ORIGINAL_W = 1536, ORIGINAL_H = 1024;
+
+    var $ = function(id){ return document.getElementById(id + '-' + sid) };
+    var state = { drawing: false, lx: 0, ly: 0, revealed: false, animating: false, checkTimer: null, dpr: 1, brushRadius: BRUSH || 40 };
+
+    var img = $('cardBg'), canvas = $('scratchCanvas'), ctx = canvas && canvas.getContext('2d'), area = $('scratchArea');
+    lg('img element', img);
+    lg('canvas element', canvas);
+    lg('area element', area);
+
+    if (!img || !canvas || !ctx || !area){ lg('ERRO: elementos principais nao encontrados'); return }
+
+    var maskCanvas = document.createElement('canvas'), maskCtx = maskCanvas.getContext('2d');
+    var scratchOverlay = $('scratchOverlay'), modalOverlay = $('modalOverlay'), successOverlay = $('successOverlay');
+    var emailForm = document.getElementById({{ form_id | json }});
+    lg('modalOverlay', modalOverlay);
+    lg('emailForm', emailForm);
+
+    var formGroups = {}, inputs = {}, errors = {};
+    var fields = ['name', 'phone', 'email'];
+    fields.forEach(function(k){
+      var g = document.getElementById('group-' + k + '-' + sid);
+      var i = document.getElementById(k + 'Input-' + sid);
+      var e = document.getElementById(k + 'Error-' + sid);
+      if (g) formGroups[k] = g;
+      if (i) inputs[k] = i;
+      if (e) errors[k] = e;
+      lg('form field ' + k, { group: !!g, input: !!i, error: !!e });
+    });
+    var successName = $('successName'), successEmail = $('successEmail');
+    var popup = document.getElementById('scratch-popup-' + sid);
+    lg('popup', popup);
+
+    function siz(){ var r = area.getBoundingClientRect(); return { w: r.width, h: r.height } }
+    function positionArea(){
+      var rect = img.getBoundingClientRect(), dw = rect.width, dh = rect.height;
+      if (dw === 0 || dh === 0){ lg('positionArea: imagem sem tamanho ainda, re-tentando'); requestAnimationFrame(positionArea); return }
+      var sx = dw / ORIGINAL_W, sy = dh / ORIGINAL_H;
+      area.style.left = Math.round(SCRATCH_X * sx) + 'px';
+      area.style.top = Math.round(SCRATCH_Y * sy) + 'px';
+      area.style.width = Math.round(SCRATCH_W * sx) + 'px';
+      area.style.height = Math.round(SCRATCH_H * sy) + 'px';
+      state.brushRadius = Math.max(20, Math.round(state.brushRadius * sx));
+      lg('positionArea', { imgW: dw, imgH: dh, sx: sx, sy: sy, areaLeft: area.style.left, areaTop: area.style.top, areaW: area.style.width, areaH: area.style.height, brushRadius: state.brushRadius });
+    }
+    function setupCanvas(){
+      state.dpr = window.devicePixelRatio || 1; var s = siz();
+      if (s.w === 0 || s.h === 0){ lg('setupCanvas: area sem tamanho, re-tentando'); requestAnimationFrame(setupCanvas); return }
+      canvas.width = s.w * state.dpr; canvas.height = s.h * state.dpr;
+      canvas.style.width = s.w + 'px'; canvas.style.height = s.h + 'px';
+      maskCanvas.width = canvas.width; maskCanvas.height = canvas.height;
+      lg('setupCanvas', { w: s.w, h: s.h, dpr: state.dpr, canvasW: canvas.width, canvasH: canvas.height });
+    }
+    function fillLayer(){
+      var s = siz(), dpr = state.dpr;
+      lg('fillLayer');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, s.w, s.h);
+      maskCtx.setTransform(dpr, 0, 0, dpr, 0, 0); maskCtx.clearRect(0, 0, s.w, s.h);
+      maskCtx.fillStyle = '#fff'; maskCtx.fillRect(0, 0, s.w, s.h);
+      var sx = SCRATCH_X / ORIGINAL_W * img.naturalWidth;
+      var sy = SCRATCH_Y / ORIGINAL_H * img.naturalHeight;
+      var sw = SCRATCH_W / ORIGINAL_W * img.naturalWidth;
+      var sh = SCRATCH_H / ORIGINAL_H * img.naturalHeight;
+      ctx.save(); ctx.filter = 'blur(' + BLUR + 'px)'; ctx.drawImage(img, sx, sy, sw, sh, 0, 0, s.w, s.h); ctx.restore();
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, s.w, s.h);
+      ctx.save(); ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.font = 'bold ' + Math.round(s.w * 0.05) + 'px -apple-system,sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('RASPE AQUI', s.w / 2, s.h / 2); ctx.restore();
+      ctx.setTransform(1, 0, 0, 1, 0, 0); maskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    function getPos(e){
+      var r = canvas.getBoundingClientRect();
+      var cx = e.touches ? e.touches[0].clientX : e.clientX;
+      var cy = e.touches ? e.touches[0].clientY : e.clientY;
+      return { x: cx - r.left, y: cy - r.top }
+    }
+    function drawOnMask(x, y, fn){
+      if (state.revealed || state.animating) return;
+      var dpr = state.dpr, br = state.brushRadius;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); maskCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      [ctx, maskCtx].forEach(function(c){
+        c.save(); c.globalCompositeOperation = 'destination-out';
+        fn(c, br); c.restore();
+      });
+      ctx.setTransform(1, 0, 0, 1, 0, 0); maskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    function dot(x, y){
+      if (state.revealed || state.animating) { lg('dot ignorado: revelado/animando'); return }
+      var br = state.brushRadius;
+      drawOnMask(x, y, function(c){ c.beginPath(); c.arc(x, y, br, 0, Math.PI * 2); c.fill() });
+    }
+    function line(x1, y1, x2, y2){
+      if (state.revealed || state.animating) { lg('line ignorado: revelado/animando'); return }
+      var br = state.brushRadius;
+      drawOnMask(x1, y1, function(c){
+        c.lineWidth = br * 2; c.lineCap = 'round'; c.lineJoin = 'round';
+        c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+      });
+    }
+    function pct(){
+      var id = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height), d = id.data, t = 0, total = d.length / 4;
+      for (var i = 3; i < d.length; i += 4) if (d[i] < 128) t++;
+      var p = (t / total) * 100;
+      lg('pct', Math.round(p) + '%');
+      return p;
+    }
+    function down(e){
+      e.preventDefault(); if (state.revealed || state.animating) return;
+      var p = getPos(e); lg('down', { x: Math.round(p.x), y: Math.round(p.y) });
+      state.drawing = true; state.lx = p.x; state.ly = p.y; dot(p.x, p.y);
+      if (!state.checkTimer){ lg('iniciando checkTimer');
+        state.checkTimer = setInterval(function(){
+          if (state.revealed || state.animating){ clearInterval(state.checkTimer); state.checkTimer = null; lg('checkTimer parado'); return }
+          var pc = pct();
+          if (pc >= REVEAL_THRESHOLD){ clearInterval(state.checkTimer); state.checkTimer = null; lg('threshold atingido!'); reveal() }
+        }, CHECK_INTERVAL);
+      }
+    }
+    function move(e){
+      e.preventDefault(); if (!state.drawing || state.revealed || state.animating) return;
+      var p = getPos(e); line(state.lx, state.ly, p.x, p.y); state.lx = p.x; state.ly = p.y;
+    }
+    function up(e){ lg('up'); state.drawing = false }
+    function reveal(){
+      lg('reveal chamado');
+      if (state.revealed || state.animating) { lg('reveal ignorado: ja revelado/animando'); return }
+      state.animating = true;
+      var dur = 200, start = performance.now(), dpr = state.dpr;
+      var sx = SCRATCH_X / ORIGINAL_W * img.naturalWidth;
+      var sy = SCRATCH_Y / ORIGINAL_H * img.naturalHeight;
+      var sw = SCRATCH_W / ORIGINAL_W * img.naturalWidth;
+      var sh = SCRATCH_H / ORIGINAL_H * img.naturalHeight;
+      function anim(now){
+        var el = now - start, prog = Math.min(el / dur, 1), ease = 1 - Math.pow(1 - prog, 3), s = siz();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, s.w, s.h);
+        var blur = Math.max(0, BLUR * (1 - ease)); ctx.filter = 'blur(' + blur.toFixed(1) + 'px)';
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, s.w, s.h); ctx.filter = 'none';
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        if (prog < 1) requestAnimationFrame(anim); else {
+          lg('reveal animacao completa');
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, s.w, s.h); ctx.setTransform(1, 0, 0, 1, 0, 0);
+          state.revealed = true; state.animating = false; canvas.style.pointerEvents = 'none';
+          popup.classList.remove('active'); modalOverlay.classList.add('active');
+          lg('popup escondido, modal aberto');
+        }
+      }
+      requestAnimationFrame(anim);
+    }
+    function bind(){
+      lg('bind eventos canvas');
+      canvas.addEventListener('mousedown', down); canvas.addEventListener('mousemove', move);
+      canvas.addEventListener('mouseup', up); canvas.addEventListener('mouseleave', up);
+      canvas.addEventListener('touchstart', down, { passive: false });
+      canvas.addEventListener('touchmove', move, { passive: false });
+      canvas.addEventListener('touchend', up); canvas.addEventListener('touchcancel', up);
+    }
+
+    function isValidEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) }
+    function isValidPhone(p){ return p.length >= 10 && /^[\d\s\(\)\-\+]+$/.test(p) }
+    function validateField(input, errorEl, validFn){
+      var v = input.value.trim();
+      if (v.length > 0 && !validFn(v)){ input.classList.add('error'); errorEl.classList.add('visible'); lg('validateField: ' + input.id + ' INVALIDO'); return false }
+      input.classList.remove('error'); errorEl.classList.remove('visible');
+      return v.length > 0 && validFn(v)
+    }
+
+    function closeAll(){ lg('closeAll'); modalOverlay.classList.remove('active'); successOverlay.classList.remove('active'); popup.classList.remove('active'); document.body.style.overflow = '' }
+    function showPopup(){ lg('showPopup'); if (!popup.classList.contains('active')){ popup.classList.add('active'); document.body.style.overflow = 'hidden'; lg('popup ativado') } else { lg('popup ja ativo') } }
+
+    async function submitForm(data){
+      lg('submitForm', data);
+      var btn = $('submitBtn');
+      btn.disabled = true; btn.textContent = T.sending || 'Enviando...';
+
+      try{ localStorage.setItem(STORAGE_KEY, Date.now()); lg('localStorage salvo: ' + STORAGE_KEY) }catch(e){ lg('localStorage error', e) }
+
+      if (API_ENABLED){
+        lg('enviando para API externa: ' + API_URL);
+        try {
+          var resp = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: data.email, name: data.name || '', phone: data.phone || '', source: 'raspadinha' })
+          });
+          lg('API externa resposta: ' + resp.status);
+        } catch(err){ lg('API externa erro', err) }
+      }
+
+      lg('enviando formulario Shopify nativo');
+      emailForm.submit();
+    }
+
+    function boot(){
+      lg('=== BOOT ===');
+      positionArea(); setupCanvas(); fillLayer(); bind();
+      lg('positionArea, setupCanvas, fillLayer, bind executados');
+
+      if (!emailForm){ lg('ERRO: emailForm nao encontrado, abortando boot'); return }
+
+      var el;
+      if (T.title && (el = $('scratchTitle'))) el.textContent = T.title; else if (T.title) lg('AVISO: scratchTitle nao encontrado');
+      if (T.subtitle && (el = $('scratchSubtitle'))) el.textContent = T.subtitle; else if (T.subtitle) lg('AVISO: scratchSubtitle nao encontrado');
+      if (T.instruction && (el = $('scratchInstruction'))) el.textContent = T.instruction; else if (T.instruction) lg('AVISO: scratchInstruction nao encontrado');
+      if (T.submit && (el = $('submitBtn'))) el.textContent = T.submit; else if (T.submit) lg('AVISO: submitBtn nao encontrado');
+      if (T.successTitle && (el = $('successTitle'))) el.textContent = T.successTitle; else if (T.successTitle) lg('AVISO: successTitle nao encontrado');
+      if (T.close && (el = $('successClose'))) el.textContent = T.close; else if (T.close) lg('AVISO: successClose nao encontrado');
+
+      fields.forEach(function(k){
+        var cfg = F[k] || {};
+        if (cfg.enabled === false && formGroups[k]){ formGroups[k].style.display = 'none'; lg('campo ' + k + ' desativado'); return }
+        if (cfg.placeholder && inputs[k]) inputs[k].placeholder = cfg.placeholder;
+        if (cfg.error && errors[k]) errors[k].textContent = cfg.error;
+      });
+
+      function validateAll(){
+        var ok = true;
+        fields.forEach(function(k){
+          var cfg = F[k] || {};
+          if (cfg.enabled === false) return;
+          if (k === 'name'){ var r = validateField(inputs[k], errors[k], function(v){ return v.length > 0 }); if (!r) ok = false }
+          else if (k === 'phone'){ var r = validateField(inputs[k], errors[k], isValidPhone); if (!r) ok = false }
+          else if (k === 'email'){ var r = validateField(inputs[k], errors[k], isValidEmail); if (!r) ok = false }
+        });
+        lg('validateAll: ' + (ok ? 'OK' : 'FALHOU'));
+        return ok;
+      }
+      fields.forEach(function(k){
+        var cfg = F[k] || {};
+        if (cfg.enabled === false) return;
+        inputs[k].addEventListener('blur', function(){ lg('blur em ' + k + ': "' + inputs[k].value.trim() + '"'); if (inputs[k].value.trim().length > 0) validateAll() });
+      });
+      emailForm.addEventListener('submit', function(e){
+        e.preventDefault(); lg('form submit');
+        if (!validateAll()){ lg('validacao falhou, abortando submit'); return }
+        var d = {};
+        fields.forEach(function(k){ var cfg = F[k] || {}; if (cfg.enabled === false) return; d[k] = inputs[k].value.trim() });
+        lg('dados do formulario', d);
+        submitForm(d);
+      });
+      $('scratchClose').addEventListener('click', function(){ lg('scratchClose clicado'); closeAll() });
+      scratchOverlay.addEventListener('click', function(e){ if (e.target === scratchOverlay){ lg('click fora card'); closeAll() } });
+      $('modalClose').addEventListener('click', function(){ lg('modalClose clicado'); closeAll() });
+      $('successClose').addEventListener('click', function(){ lg('successClose clicado'); try{ localStorage.setItem(STORAGE_KEY, Date.now()) }catch(e){} closeAll() });
+      successOverlay.addEventListener('click', function(e){ if (e.target === successOverlay){ lg('click fora success'); try{ localStorage.setItem(STORAGE_KEY, Date.now()) }catch(e){} closeAll() } });
+      var rt;
+      window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(function(){ if (state.revealed) return; lg('resize: reposicionando'); positionArea(); setupCanvas(); fillLayer() }, 200) });
+    }
+
+    function init(){
+      lg('=== INIT ===');
+      if (img.complete && img.naturalWidth > 0){ lg('imagem ja carregada', { w: img.naturalWidth, h: img.naturalHeight }); boot(); return }
+      lg('aguardando load da imagem');
+      var loaded = false;
+      img.addEventListener('load', function(){ if (!loaded){ loaded = true; lg('imagem carregada', { w: img.naturalWidth, h: img.naturalHeight }); boot() } });
+      img.addEventListener('error', function(){ lg('ERRO no load da imagem, retentando em 1s'); var retry = setTimeout(function(){ img.src = imgSrc; clearTimeout(retry) }, 1000) });
+    }
+
+    try{
+      var lastSubmit = localStorage.getItem(STORAGE_KEY);
+      if (lastSubmit){
+        var elapsed = Date.now() - parseInt(lastSubmit);
+        lg('localStorage: submit anterior ha ' + Math.round(elapsed / 1000) + 's (cooldown: ' + Math.round(COOLDOWN / 1000) + 's)');
+        if (elapsed < COOLDOWN){ lg('COOLDOWN ATIVO, abortando'); return }
+        lg('cooldown expirado, pode mostrar');
+      } else { lg('nenhum submit anterior no localStorage') }
+    }catch(e){ lg('erro ao ler localStorage', e) }
+
+    lg('agendando popup para ' + SHOW_DELAY + 'ms');
+    setTimeout(function(){
+      if (document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', function(){ lg('DOMContentLoaded disparado'); init(); showPopup() }) }
+      else { lg('DOM ja carregado, iniciando'); init(); showPopup() }
+    }, SHOW_DELAY);
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Raspadinha",
+  "settings": [
+    {
+      "type": "header",
+      "content": "Imagem"
+    },
+    {
+      "type": "image_picker",
+      "id": "image",
+      "label": "Imagem da raspadinha",
+      "info": "Tamanho recomendado: 1536x1024px"
+    },
+    {
+      "type": "header",
+      "content": "Texto sobre a imagem"
+    },
+    {
+      "type": "text",
+      "id": "card_title",
+      "label": "Titulo",
+      "info": "Deixe em branco para ocultar."
+    },
+    {
+      "type": "textarea",
+      "id": "card_description",
+      "label": "Descricao",
+      "info": "Deixe em branco para ocultar."
+    },
+    {
+      "type": "header",
+      "content": "Fundo"
+    },
+    {
+      "type": "image_picker",
+      "id": "bg_image",
+      "label": "Imagem de fundo",
+      "info": "Opcional. Se vazio, usa apenas a cor solida."
+    },
+    {
+      "type": "range",
+      "id": "bg_blur",
+      "label": "Blur da imagem de fundo (px)",
+      "min": 0,
+      "max": 30,
+      "default": 4,
+      "step": 1
+    },
+    {
+      "type": "range",
+      "id": "bg_color_opacity",
+      "label": "Opacidade da cor de fundo (%)",
+      "min": 0,
+      "max": 100,
+      "default": 85,
+      "step": 5
+    },
+    {
+      "type": "header",
+      "content": "Cores"
+    },
+    {
+      "type": "color",
+      "id": "bg_color",
+      "label": "Cor de fundo",
+      "default": "#000000",
+      "info": "Opacidade controlada pelo slider acima. Com 0% a cor desaparece."
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Cor do texto",
+      "default": "#ffffff"
+    },
+    {
+      "type": "color",
+      "id": "modal_bg_color",
+      "label": "Fundo do formulario",
+      "default": "#000000"
+    },
+    {
+      "type": "color",
+      "id": "btn_bg_color",
+      "label": "Fundo do botao",
+      "default": "#ffffff"
+    },
+    {
+      "type": "color",
+      "id": "btn_text_color",
+      "label": "Texto do botao",
+      "default": "#000000"
+    },
+    {
+      "type": "color",
+      "id": "input_bg_color",
+      "label": "Fundo dos inputs",
+      "default": "#1a1a1a"
+    },
+    {
+      "type": "header",
+      "content": "Coordenadas da area raspavel"
+    },
+    {
+      "type": "text",
+      "id": "scratch_x",
+      "label": "Posicao X (px)",
+      "default": "720",
+      "info": "Imagem de referencia: 1536x1024px. Digite o valor em pixels."
+    },
+    {
+      "type": "text",
+      "id": "scratch_y",
+      "label": "Posicao Y (px)",
+      "default": "366",
+      "info": "Imagem de referencia: 1536x1024px. Digite o valor em pixels."
+    },
+    {
+      "type": "text",
+      "id": "scratch_w",
+      "label": "Largura (px)",
+      "default": "533",
+      "info": "Imagem de referencia: 1536x1024px. Digite o valor em pixels."
+    },
+    {
+      "type": "text",
+      "id": "scratch_h",
+      "label": "Altura (px)",
+      "default": "329",
+      "info": "Imagem de referencia: 1536x1024px. Digite o valor em pixels."
+    },
+    {
+      "type": "header",
+      "content": "Comportamento"
+    },
+    {
+      "type": "range",
+      "id": "delay",
+      "label": "Delay para aparecer (segundos)",
+      "min": 1,
+      "max": 60,
+      "default": 5,
+      "step": 1
+    },
+    {
+      "type": "range",
+      "id": "cooldown",
+      "label": "Cooldown entre exibicoes (dias)",
+      "min": 0,
+      "max": 30,
+      "default": 2,
+      "step": 1
+    },
+    {
+      "type": "range",
+      "id": "threshold",
+      "label": "% para revelar",
+      "min": 10,
+      "max": 100,
+      "default": 60,
+      "step": 5
+    },
+    {
+      "type": "range",
+      "id": "blur",
+      "label": "Forca do blur (px)",
+      "min": 0,
+      "max": 50,
+      "default": 18,
+      "step": 1
+    },
+    {
+      "type": "range",
+      "id": "brush",
+      "label": "Tamanho do pincel (px)",
+      "min": 10,
+      "max": 100,
+      "default": 40,
+      "step": 5
+    },
+    {
+      "type": "header",
+      "content": "Formulario"
+    },
+    {
+      "type": "checkbox",
+      "id": "name_enabled",
+      "label": "Campo nome",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "phone_enabled",
+      "label": "Campo telefone",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "name_placeholder",
+      "label": "Placeholder nome",
+      "default": "Seu nome"
+    },
+    {
+      "type": "text",
+      "id": "phone_placeholder",
+      "label": "Placeholder telefone",
+      "default": "(11) 99999-9999"
+    },
+    {
+      "type": "text",
+      "id": "email_placeholder",
+      "label": "Placeholder e-mail",
+      "default": "seu@email.com"
+    },
+    {
+      "type": "text",
+      "id": "name_error",
+      "label": "Mensagem erro nome",
+      "default": "Campo obrigatorio"
+    },
+    {
+      "type": "text",
+      "id": "phone_error",
+      "label": "Mensagem erro telefone",
+      "default": "Telefone invalido"
+    },
+    {
+      "type": "text",
+      "id": "email_error",
+      "label": "Mensagem erro e-mail",
+      "default": "E-mail invalido"
+    },
+    {
+      "type": "header",
+      "content": "Textos do modal"
+    },
+    {
+      "type": "text",
+      "id": "modal_title",
+      "label": "Titulo",
+      "default": "Parabens!"
+    },
+    {
+      "type": "text",
+      "id": "modal_subtitle",
+      "label": "Subtitulo",
+      "default": "Seu premio foi desbloqueado."
+    },
+    {
+      "type": "text",
+      "id": "modal_instruction",
+      "label": "Instrucao",
+      "default": "Preencha seus dados para resgatar:"
+    },
+    {
+      "type": "text",
+      "id": "submit_text",
+      "label": "Texto do botao",
+      "default": "Resgatar Premio"
+    },
+    {
+      "type": "text",
+      "id": "sending_text",
+      "label": "Texto enquanto envia",
+      "default": "Enviando..."
+    },
+    {
+      "type": "text",
+      "id": "success_title",
+      "label": "Titulo sucesso",
+      "default": "Premio Resgatado!"
+    },
+    {
+      "type": "text",
+      "id": "close_text",
+      "label": "Texto fechar",
+      "default": "Fechar"
+    },
+    {
+      "type": "text",
+      "id": "tags",
+      "label": "Tags do contato",
+      "default": "newsletter,raspadinha"
+    },
+    {
+      "type": "header",
+      "content": "API externa (opcional)"
+    },
+    {
+      "type": "checkbox",
+      "id": "api_enabled",
+      "label": "Enviar para API externa",
+      "default": false
+    },
+    {
+      "type": "text",
+      "id": "api_url",
+      "label": "URL da API",
+      "default": "https://api.seudominio.com/scratch",
+      "info": "So e enviado se ativado acima."
+    }
+  ],
+  "presets": [
+    {
+      "name": "Raspadinha",
+      "category": "Marketing"
+    }
+  ]
+}
+{% endschema %}
