@@ -424,8 +424,6 @@
       var btn = $('submitBtn');
       btn.disabled = true; btn.textContent = T.sending || 'Enviando...';
 
-      try{ localStorage.setItem(STORAGE_KEY, Date.now()); lg('localStorage salvo: ' + STORAGE_KEY) }catch(e){ lg('localStorage error', e) }
-
       if (API_ENABLED){
         lg('enviando para API externa: ' + API_URL);
         try {
@@ -435,8 +433,15 @@
             body: JSON.stringify({ email: data.email, name: data.name || '', phone: data.phone || '', source: 'raspadinha' })
           });
           lg('API externa resposta: ' + resp.status);
-        } catch(err){ lg('API externa erro', err) }
+          if (!resp.ok){ lg('API retornou erro, cancelando'); closeAll(); return }
+        } catch(err){
+          lg('API externa erro', err);
+          closeAll();
+          return;
+        }
       }
+
+      try{ localStorage.setItem(STORAGE_KEY, Date.now()); lg('localStorage salvo: ' + STORAGE_KEY) }catch(e){ lg('localStorage error', e) }
 
       lg('enviando formulario Shopify nativo');
       emailForm.submit();
